@@ -13,16 +13,20 @@ class ApiDownloader:
 
         data = response.json()
 
-        hourly = data["hourly"]
-        times = hourly["time"]
-        temps = hourly["temperature_2m"]
+        hourly = data.get("hourly", {})
+        times = hourly.get("time", [])
+        temperatures = hourly.get("temperature_2m", [])
+
+        if not times or not temperatures:
+            raise ValueError("La API no devolvió datos horarios válidos")
 
         rows = []
 
-        for i in range(min(len(times), len(temps), limit)):
+        for i in range(min(len(times), len(temperatures), limit)):
             rows.append({
                 "datetime": times[i],
-                "temperature_2m": temps[i]
+                "temperature_2m": temperatures[i],
+                "source": "open_meteo"
             })
 
         return rows
