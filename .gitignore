@@ -181,3 +181,40 @@ __pycache__/
 .pytest_cache/
 tests/fixture/api_response.json
 # End of https://www.toptal.com/developers/gitignore/api/python
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.pytest_cache/
+.venv/
+venv/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Credentials
+credentials/
+**/credentials/
+*.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Airflow
+airflow.db
+logs/
+plugins/__pycache__/
+
+# Build
+dist/
+build/
+*.egg-info/
