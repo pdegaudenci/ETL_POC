@@ -4,22 +4,25 @@ USING (
     TIMESTAMP(datetime) AS datetime,
     SAFE_CAST(temperature_2m AS FLOAT64) AS temperature_2m,
     CURRENT_DATE() AS execution_date,
-    'open_meteo' AS source
+    source
   FROM (
     SELECT
       datetime,
       temperature_2m,
       source,
+      ingested_at,
       ROW_NUMBER() OVER (
-        PARTITION BY datetime
-        ORDER BY datetime
+        PARTITION BY datetime, source
+        ORDER BY ingested_at DESC
       ) AS rn
     FROM `{project_id}.SANDBOX_PRUEBA_METEO.open_meteo_hourly`
     WHERE datetime IS NOT NULL
+      AND ingestion_date = CURRENT_DATE()
   )
   WHERE rn = 1
 ) S
 ON T.datetime = S.datetime
+AND T.source = S.source
 
 WHEN MATCHED THEN
 UPDATE SET

@@ -33,8 +33,10 @@ class BigQueryLoader:
 
         schema = [
             bigquery.SchemaField("datetime", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("temperature_2m", "FLOAT", mode="NULLABLE"),
+            bigquery.SchemaField("temperature_2m", "FLOAT64", mode="NULLABLE"),
             bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("ingestion_date", "DATE", mode="REQUIRED"),
+            bigquery.SchemaField("ingested_at", "TIMESTAMP", mode="REQUIRED"),
         ]
 
         try:
@@ -43,15 +45,27 @@ class BigQueryLoader:
 
         except NotFound:
             table = bigquery.Table(full_table_id, schema=schema)
+
+            table.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY,
+                field="ingestion_date",
+            )
+
+            table.clustering_fields = ["source"]
+
             self.client.create_table(table)
-            print(f"Tabla SANDBOX creada: {full_table_id}")
+
+            print(
+                "Tabla SANDBOX creada con particionado por ingestion_date "
+                f"y clustering por source: {full_table_id}"
+            )
 
     def ensure_integration_table(self, dataset_id: str, table_id: str):
         full_table_id = f"{self.project_id}.{dataset_id}.{table_id}"
 
         schema = [
             bigquery.SchemaField("datetime", "TIMESTAMP", mode="REQUIRED"),
-            bigquery.SchemaField("temperature_2m", "FLOAT", mode="NULLABLE"),
+            bigquery.SchemaField("temperature_2m", "FLOAT64", mode="NULLABLE"),
             bigquery.SchemaField("execution_date", "DATE", mode="NULLABLE"),
             bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
         ]
@@ -62,8 +76,20 @@ class BigQueryLoader:
 
         except NotFound:
             table = bigquery.Table(full_table_id, schema=schema)
+
+            table.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY,
+                field="datetime",
+            )
+
+            table.clustering_fields = ["source"]
+
             self.client.create_table(table)
-            print(f"Tabla INTEGRATION creada: {full_table_id}")
+
+            print(
+                "Tabla INTEGRATION creada con particionado por datetime "
+                f"y clustering por source: {full_table_id}"
+            )
 
     def load_json_rows(
         self,

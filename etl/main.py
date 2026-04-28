@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 
 from config import settings
-from api.api_downloader import ApiDownloader
-from api.bq_loader import BigQueryLoader
+from etl.api_downloader import ApiDownloader
+from etl.bq_loader import BigQueryLoader
 
 
 def validate_settings():
