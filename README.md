@@ -217,9 +217,9 @@ python -m pytest
 
 ---
 
-# Capturas recomendadas
+## Captura de pantalla
 
-
+![Tablas BigQuery](https://github.com/pdegaudenci/ETL_POC/blob/master/docs/tablas.png)
 
 ---
 
