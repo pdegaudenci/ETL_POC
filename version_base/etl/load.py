@@ -6,12 +6,18 @@ from google.cloud import bigquery
 
 class BigQueryLoader:
     """
-    Load layer.
+    Capa LOAD del pipeline.
 
     Responsabilidad:
-    - Crear datasets si no existen.
-    - Crear tabla SANDBOX si no existe.
-    - Cargar registros crudos en BigQuery.
+    - Crear el dataset SANDBOX si no existe.
+    - Crear la tabla SANDBOX si no existe.
+    - Cargar los datos crudos descargados desde CoinGecko.
+
+    La tabla SANDBOX se crea con buenas prácticas de BigQuery:
+    - Particionada por ingestion_date.
+    - Clusterizada por symbol.
+
+    Esta clase no transforma datos finales. Solo carga datos raw/sandbox.
     """
 
     def __init__(self, project_id: str, location: str = "EU"):
@@ -42,8 +48,19 @@ class BigQueryLoader:
         full_table_id = f"{self.project_id}.{dataset_id}.{table_id}"
 
         schema = [
-            bigquery.SchemaField("datetime", "STRING", mode="REQUIRED"),
-            bigquery.SchemaField("temperature_2m", "FLOAT64", mode="NULLABLE"),
+            bigquery.SchemaField("coin_id", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("symbol", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("name", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("current_price", "FLOAT64", mode="NULLABLE"),
+            bigquery.SchemaField("market_cap", "INT64", mode="NULLABLE"),
+            bigquery.SchemaField("market_cap_rank", "INT64", mode="NULLABLE"),
+            bigquery.SchemaField("total_volume", "FLOAT64", mode="NULLABLE"),
+            bigquery.SchemaField(
+                "price_change_percentage_24h",
+                "FLOAT64",
+                mode="NULLABLE",
+            ),
+            bigquery.SchemaField("last_updated", "STRING", mode="NULLABLE"),
             bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
             bigquery.SchemaField("ingestion_date", "DATE", mode="REQUIRED"),
             bigquery.SchemaField("ingested_at", "TIMESTAMP", mode="REQUIRED"),
@@ -61,13 +78,13 @@ class BigQueryLoader:
                 field="ingestion_date",
             )
 
-            table.clustering_fields = ["source"]
+            table.clustering_fields = ["symbol"]
 
             self.client.create_table(table)
 
             print(
                 "Tabla SANDBOX creada con particionado por ingestion_date "
-                f"y clustering por source: {full_table_id}"
+                f"y clustering por symbol: {full_table_id}"
             )
 
     def load_json_rows(

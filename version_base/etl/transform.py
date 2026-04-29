@@ -4,12 +4,19 @@ from google.cloud import bigquery
 
 class BigQueryTransformer:
     """
-    Transform layer.
+    Capa TRANSFORM del pipeline.
 
     Responsabilidad:
-    - Crear tabla INTEGRATION si no existe.
-    - Ejecutar SQL de transformación.
-    - Delegar la transformación pesada a BigQuery Query Jobs.
+    - Crear el dataset INTEGRATION si no existe.
+    - Crear la tabla final si no existe.
+    - Ejecutar el archivo SQL de transformación.
+    - Delegar el procesamiento pesado a BigQuery Query Jobs.
+
+    La tabla final se crea con buenas prácticas:
+    - Particionada por execution_date.
+    - Clusterizada por symbol.
+
+    La transformación final es idempotente mediante MERGE.
     """
 
     def __init__(self, project_id: str, location: str = "EU"):
@@ -40,9 +47,20 @@ class BigQueryTransformer:
         full_table_id = f"{self.project_id}.{dataset_id}.{table_id}"
 
         schema = [
-            bigquery.SchemaField("datetime", "TIMESTAMP", mode="REQUIRED"),
-            bigquery.SchemaField("temperature_2m", "FLOAT64", mode="NULLABLE"),
-            bigquery.SchemaField("execution_date", "DATE", mode="NULLABLE"),
+            bigquery.SchemaField("coin_id", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("symbol", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("name", "STRING", mode="NULLABLE"),
+            bigquery.SchemaField("current_price", "FLOAT64", mode="NULLABLE"),
+            bigquery.SchemaField("market_cap", "INT64", mode="NULLABLE"),
+            bigquery.SchemaField("market_cap_rank", "INT64", mode="NULLABLE"),
+            bigquery.SchemaField("total_volume", "FLOAT64", mode="NULLABLE"),
+            bigquery.SchemaField(
+                "price_change_percentage_24h",
+                "FLOAT64",
+                mode="NULLABLE",
+            ),
+            bigquery.SchemaField("last_updated", "TIMESTAMP", mode="NULLABLE"),
+            bigquery.SchemaField("execution_date", "DATE", mode="REQUIRED"),
             bigquery.SchemaField("source", "STRING", mode="NULLABLE"),
         ]
 
@@ -55,16 +73,16 @@ class BigQueryTransformer:
 
             table.time_partitioning = bigquery.TimePartitioning(
                 type_=bigquery.TimePartitioningType.DAY,
-                field="datetime",
+                field="execution_date",
             )
 
-            table.clustering_fields = ["source"]
+            table.clustering_fields = ["symbol"]
 
             self.client.create_table(table)
 
             print(
-                "Tabla INTEGRATION creada con particionado por datetime "
-                f"y clustering por source: {full_table_id}"
+                "Tabla INTEGRATION creada con particionado por execution_date "
+                f"y clustering por symbol: {full_table_id}"
             )
 
     def run_sql_file(self, sql_path: str):

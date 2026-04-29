@@ -8,6 +8,10 @@ from etl.transform import BigQueryTransformer
 
 
 def validate_settings():
+    """
+    Valida la configuración mínima necesaria antes de ejecutar el pipeline.
+    """
+
     if not settings.PROJECT_ID:
         raise ValueError("Falta PROJECT_ID en .env")
 
@@ -25,17 +29,27 @@ def validate_settings():
 
 
 def main():
+    """
+    Orquestador principal del pipeline ETL.
+
+    Flujo:
+    1. EXTRACT: descarga datos desde CoinGecko.
+    2. LOAD: carga datos en BigQuery SANDBOX.
+    3. TRANSFORM: ejecuta MERGE idempotente hacia INTEGRATION.
+    """
+
     validate_settings()
 
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
         settings.GOOGLE_APPLICATION_CREDENTIALS_FULL_PATH
     )
 
-    print("EXTRACT - Descargando datos desde API...")
+    print("EXTRACT - Descargando datos y guardando copia local...")
     extractor = ApiExtractor(
         api_url=settings.API_URL,
         source_name=settings.SOURCE_NAME,
     )
+
     rows = extractor.extract(limit=settings.API_LIMIT)
     print(f"EXTRACT - Registros descargados: {len(rows)}")
 
