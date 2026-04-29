@@ -321,11 +321,191 @@ python -m pytest tests/integration/test_real_api.py -s
 
 ---
 
+## Despliegue en Cloud Composer (Paso a Paso)
+
+### 1. Crear entorno Composer
+
+Ir a Google Cloud Console:
+
+```text
+Cloud Composer → Create Environment
+```
+
+Configurar:
+
+```text
+Name: composer-etl
+Region: europe-west1
+Composer Version: Composer 3
+Environment Size: Small
+Network: default
+Service Account: composer-etl-sa
+```
+
+Esperar creación (20–30 min aprox).
+
+---
+
+### 2. Instalar dependencias Python
+
+Entrar al entorno Composer creado:
+
+```text
+Environment → PyPI packages
+```
+
+Agregar:
+
+```text
+requests==2.32.3
+google-cloud-bigquery==3.25.0
+```
+
+Guardar y esperar actualización.
+
+---
+
+### 3. Abrir bucket del entorno
+
+Dentro del entorno Composer:
+
+```text
+Open Environment Details → DAGs Folder
+```
+
+Se abrirá el bucket Cloud Storage asociado.
+
+---
+
+### 4. Subir archivos del proyecto
+
+Subir contenido interno de:
+
+```text
+version_airflow/dags/
+```
+
+Debe quedar:
+
+```text
+dags/
+├── coingecko_market_pipeline_dag.py
+├── utils/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── coingecko_api.py
+│   └── schemas.py
+└── sql/
+    ├── transform_coingecko.sql
+    └── data_quality_checks_coingecko.sql
+```
+
+---
+
+### 5. Configurar Variables de Airflow
+
+Abrir Airflow UI:
+
+```text
+Admin → Variables
+```
+
+Crear:
+
+```text
+PROJECT_ID = 
+BQ_LOCATION = EU
+
+SANDBOX_DATASET = SANDBOX_CRYPTO
+SANDBOX_TABLE = coingecko_markets
+
+INTEGRATION_DATASET = INTEGRATION
+INTEGRATION_TABLE = integration_prueba_tecnica
+
+API_URL = https://api.coingecko.com/api/v3/coins/markets
+API_VS_CURRENCY = usd
+API_ORDER = market_cap_desc
+API_LIMIT = 100
+API_PAGE = 1
+API_SPARKLINE = false
+
+SOURCE_NAME = coingecko
+WRITE_DISPOSITION = WRITE_TRUNCATE
+```
+
+---
+
+### 6. Esperar carga del DAG
+
+En 1–5 minutos aparecerá:
+
+```text
+coingecko_market_pipeline
+```
+
+---
+
+### 7. Activar DAG
+
+En Airflow:
+
+* Buscar DAG
+* Activar con toggle (Unpause)
+
+---
+
+### 8. Ejecutar pipeline
+
+Pulsar:
+
+```text
+Trigger DAG
+```
+
+---
+
+### 9. Orden esperado de ejecución
+
+```text
+create_sandbox_dataset
+create_integration_dataset
+create_sandbox_table
+create_integration_table
+extract_coingecko_data
+load_to_sandbox
+check_sandbox_has_rows
+transform_to_integration
+check_integration_has_rows
+check_no_duplicates
+run_data_quality_checks
+```
+
+---
+
+### 10. Verificar BigQuery
+
+Deben aparecer:
+
+```text
+SANDBOX_CRYPTO.coingecko_markets
+INTEGRATION.integration_prueba_tecnica
+```
+
+---
+
+### 11. Logs y troubleshooting
+
+Revisar:
+
+* Airflow Task Logs
+* Cloud Logging
+* Composer Logs
+
+---
+
 ## Evidencia
 
 ![Tablas BigQuery](https://github.com/pdegaudenci/ETL_POC/blob/master/version_base/docs/tablas.png)
-
-
 
 ---
 
