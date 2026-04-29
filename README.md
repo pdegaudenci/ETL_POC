@@ -2,7 +2,7 @@
 
 ## Descripción
 
-Proyecto de ingeniería de datos con dos implementaciones complementarias:
+Proyecto de ingeniería de datos con dos implementaciones complementarias.
 
 ### 1. Versión Base (Python ETL)
 
@@ -49,7 +49,7 @@ Python ETL
    ↓
 output/*.json
    ↓
-BigQuery SANDBOX_CRYPTO
+BigQuery SANDBOX
    ↓
 sql/transform.sql
    ↓
@@ -65,7 +65,7 @@ Cloud Composer / Airflow
    ↓
 BigQuery SANDBOX
    ↓
-BigQuery MERGE
+MERGE / UPSERT
    ↓
 INTEGRATION
    ↓
@@ -80,24 +80,17 @@ Quality Checks
 EJERCICIO/
 ├── version_base/
 │   ├── etl/
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   ├── extract.py
-│   │   ├── load.py
-│   │   ├── transform.py
-│   │   └── main.py
 │   ├── sql/
-│   │   ├── transform.sql
-│   │   └── data_quality_checks.sql
 │   ├── output/
 │   ├── tests/
-│   ├── requirements.txt
-│   └── .env.example
+│   └── requirements.txt
 │
 ├── version_airflow/
 │   ├── dags/
-│   ├── requirements.txt
-│   └── .env.example
+│   │   ├── coingecko_market_pipeline_dag.py
+│   │   ├── utils/
+│   │   └── sql/
+│   └── requirements.txt
 │
 ├── docs/
 └── README.md
@@ -111,6 +104,8 @@ EJERCICIO/
 * Cuenta en Google Cloud Platform
 * BigQuery API habilitada
 * Cloud Composer API habilitada
+* Cloud Storage API habilitada
+* Kubernetes Engine API habilitada
 * Cuenta de servicio IAM
 * Clave JSON descargada
 
@@ -118,47 +113,66 @@ EJERCICIO/
 
 ## Configuración GCP
 
-### 1. Crear proyecto
-
-Crear proyecto:
+### Crear proyecto
 
 ```text
 etl-poc-494716
 ```
 
-### 2. Habilitar APIs
-
-Activar:
+### Activar APIs
 
 * BigQuery API
 * Cloud Composer API
 * Cloud Storage API
 * IAM API
 * Kubernetes Engine API
+* Compute Engine API
 
-### 3. Crear Service Account
+---
+
+## Cuenta de Servicio
 
 Crear:
 
 ```text
-etl-bq-sa
+composer-etl-sa
 ```
 
-### 4. Roles recomendados
+---
 
-Asignar:
+## Roles IAM recomendados
 
+### Para el usuario (UI Composer)
+
+* Composer User
+* Viewer
+
+Opcional:
+
+* Composer Administrator
+
+### Para la Service Account Composer
+
+* Composer Worker
 * BigQuery Data Editor
 * BigQuery Job User
-* Storage Object Admin
+* Storage Object Viewer
+* Storage Object Creator
 
-Opcional demo rápida:
+### Roles adicionales indicados por error de creación
+
+* roles/editor
+* roles/composer.ServiceAgentV2Ext
+
+### Opción rápida demo
 
 * BigQuery Admin
+* Storage Admin
+* Composer Administrator
 
-### 5. Descargar clave JSON
+---
 
-Guardar en:
+## Descargar clave JSON
 
 ```text
 credentials/service_account.json
@@ -166,10 +180,10 @@ credentials/service_account.json
 
 ---
 
-## Variables de entorno (.env)
+## Variables de entorno (.env) – Versión Base
 
 ```env
-PROJECT_ID=
+PROJECT_ID=etl-poc-494716
 BQ_LOCATION=EU
 
 APP_NAME=CRYPTO
@@ -180,10 +194,14 @@ SANDBOX_TABLE=coingecko_markets
 INTEGRATION_DATASET=INTEGRATION
 INTEGRATION_TABLE=integration_prueba_tecnica
 
-API_URL=https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1
+API_URL=https://api.coingecko.com/api/v3/coins/markets
+API_VS_CURRENCY=usd
+API_ORDER=market_cap_desc
 API_LIMIT=100
-SOURCE_NAME=coingecko
+API_PAGE=1
+API_SPARKLINE=false
 
+SOURCE_NAME=coingecko
 WRITE_DISPOSITION=WRITE_TRUNCATE
 
 GOOGLE_APPLICATION_CREDENTIALS=credentials/service_account.json
@@ -191,9 +209,40 @@ GOOGLE_APPLICATION_CREDENTIALS=credentials/service_account.json
 
 ---
 
-## Instalación
+## Variables de entorno – Cloud Composer
 
-Desde `version_base/`
+```env
+PROJECT_ID1=etl-poc-494716
+BQ_LOCATION=EU
+
+APP_NAME=PRUEBA_CRYPTO
+
+SANDBOX_DATASET=SANDBOX_PRUEBA_CRYPTO
+SANDBOX_TABLE=coingecko_markets_raw
+
+INTEGRATION_DATASET=INTEGRATION
+INTEGRATION_TABLE=integration_coingecko_markets
+
+API_URL=https://api.coingecko.com/api/v3/coins/markets
+API_VS_CURRENCY=usd
+API_ORDER=market_cap_desc
+API_LIMIT=100
+API_PAGE=1
+API_SPARKLINE=false
+
+SOURCE_NAME=coingecko
+WRITE_DISPOSITION=WRITE_TRUNCATE
+```
+
+En `config.py`:
+
+```python
+PROJECT_ID = os.getenv("PROJECT_ID1")
+```
+
+---
+
+## Instalación – Versión Base
 
 ```bash
 pip install -r requirements.txt
@@ -201,9 +250,7 @@ pip install -r requirements.txt
 
 ---
 
-## Ejecución
-
-Desde carpeta `version_base`
+## Ejecución – Versión Base
 
 ```bash
 python -m etl.main
@@ -233,19 +280,17 @@ INTEGRATION.integration_prueba_tecnica
 
 ### SANDBOX
 
-Tabla raw con campos técnicos:
-
 * ingestion_date
 * ingested_at
 
-Optimizada con:
+Optimización:
 
 * Particionado por `ingestion_date`
 * Clustering por `symbol`
 
 ### INTEGRATION
 
-Tabla final de negocio optimizada con:
+Optimización:
 
 * Particionado por `execution_date`
 * Clustering por `symbol`
@@ -267,7 +312,7 @@ Características:
 * Deduplica con `ROW_NUMBER()`
 * Usa `MERGE`
 * Idempotente
-* Crea tabla si no existe desde Python
+* Crea tabla si no existe
 
 ---
 
@@ -279,7 +324,7 @@ Archivo:
 sql/data_quality_checks.sql
 ```
 
-Validaciones incluidas:
+Incluye:
 
 * Conteo de registros
 * Nulos
@@ -293,13 +338,9 @@ Validaciones incluidas:
 
 ## Tests
 
-Ejecutar todos:
-
 ```bash
 python -m pytest
 ```
-
-Ejecutar API real:
 
 ```bash
 python -m pytest tests/integration/test_real_api.py -s
@@ -307,25 +348,9 @@ python -m pytest tests/integration/test_real_api.py -s
 
 ---
 
-## Cloud Composer (versión avanzada)
+## Cloud Composer – Despliegue paso a paso
 
-### Qué demuestra
-
-* Orquestación profesional
-* DAGs en Airflow
-* Operadores BigQuery
-* Variables Airflow
-* Reintentos
-* Dependencias entre tareas
-* Escalabilidad cloud
-
----
-
-## Despliegue en Cloud Composer (Paso a Paso)
-
-### 1. Crear entorno Composer
-
-Ir a Google Cloud Console:
+### 1. Crear entorno
 
 ```text
 Cloud Composer → Create Environment
@@ -334,52 +359,32 @@ Cloud Composer → Create Environment
 Configurar:
 
 ```text
-Name: composer-etl
+Name: composer-coingecko-dev
 Region: europe-west1
 Composer Version: Composer 3
 Environment Size: Small
 Network: default
 Service Account: composer-etl-sa
+Web server access: All IP addresses
 ```
 
-Esperar creación (20–30 min aprox).
+### 2. PyPI Packages
 
----
-
-### 2. Instalar dependencias Python
-
-Entrar al entorno Composer creado:
-
-```text
-Environment → PyPI packages
-```
-
-Agregar:
+Dejar vacío o solo:
 
 ```text
 requests==2.32.3
-google-cloud-bigquery==3.25.0
 ```
 
-Guardar y esperar actualización.
-
----
-
-### 3. Abrir bucket del entorno
-
-Dentro del entorno Composer:
+No instalar:
 
 ```text
-Open Environment Details → DAGs Folder
+google-cloud-bigquery
 ```
 
-Se abrirá el bucket Cloud Storage asociado.
+### 3. Subir DAGs al bucket
 
----
-
-### 4. Subir archivos del proyecto
-
-Subir contenido interno de:
+Subir contenido de:
 
 ```text
 version_airflow/dags/
@@ -391,80 +396,27 @@ Debe quedar:
 dags/
 ├── coingecko_market_pipeline_dag.py
 ├── utils/
-│   ├── __init__.py
-│   ├── config.py
-│   ├── coingecko_api.py
-│   └── schemas.py
 └── sql/
-    ├── transform_coingecko.sql
-    └── data_quality_checks_coingecko.sql
 ```
 
----
-
-### 5. Configurar Variables de Airflow
-
-Abrir Airflow UI:
-
-```text
-Admin → Variables
-```
-
-Crear:
-
-```text
-PROJECT_ID = 
-BQ_LOCATION = EU
-
-SANDBOX_DATASET = SANDBOX_CRYPTO
-SANDBOX_TABLE = coingecko_markets
-
-INTEGRATION_DATASET = INTEGRATION
-INTEGRATION_TABLE = integration_prueba_tecnica
-
-API_URL = https://api.coingecko.com/api/v3/coins/markets
-API_VS_CURRENCY = usd
-API_ORDER = market_cap_desc
-API_LIMIT = 100
-API_PAGE = 1
-API_SPARKLINE = false
-
-SOURCE_NAME = coingecko
-WRITE_DISPOSITION = WRITE_TRUNCATE
-```
-
----
-
-### 6. Esperar carga del DAG
-
-En 1–5 minutos aparecerá:
+### 4. Esperar carga del DAG
 
 ```text
 coingecko_market_pipeline
 ```
 
----
+### 5. Activar DAG
 
-### 7. Activar DAG
+* Toggle ON
+* Unpause
 
-En Airflow:
-
-* Buscar DAG
-* Activar con toggle (Unpause)
-
----
-
-### 8. Ejecutar pipeline
-
-Pulsar:
+### 6. Ejecutar DAG
 
 ```text
 Trigger DAG
 ```
 
----
-
-### 9. Orden esperado de ejecución
+### 7. Orden esperado de tareas
 
 ```text
 create_sandbox_dataset
@@ -476,36 +428,36 @@ load_to_sandbox
 check_sandbox_has_rows
 transform_to_integration
 check_integration_has_rows
-check_no_duplicates
-run_data_quality_checks
+check_no_duplicate_business_key
+run_data_quality_summary
 ```
 
 ---
 
-### 10. Verificar BigQuery
+## Troubleshooting
 
-Deben aparecer:
-
-```text
-SANDBOX_CRYPTO.coingecko_markets
-INTEGRATION.integration_prueba_tecnica
-```
-
----
-
-### 11. Logs y troubleshooting
+### Error 403 Airflow UI
 
 Revisar:
 
-* Airflow Task Logs
-* Cloud Logging
-* Composer Logs
+* Roles IAM del usuario
+* Web server access control
+* Proyecto correcto
+* Cuenta Google correcta
+
+### Broken DAG
+
+Revisar:
+
+* Variables de entorno
+* Imports
+* Rutas SQL `dags/sql/...`
 
 ---
 
 ## Evidencia
 
-![Tablas BigQuery](https://github.com/pdegaudenci/ETL_POC/blob/master/version_base/docs/tablas.png)
+![Tablas BigQuery](https://raw.githubusercontent.com/pdegaudenci/ETL_POC/master/version_base/docs/tablas.png)
 
 ---
 

@@ -4,10 +4,16 @@ from typing import Any, Dict, List
 import requests
 from google.cloud import bigquery
 
-from version_airflow.dags.utils.config import settings
+from utils.config import settings
 
 
 def _safe_float(value: Any):
+    """
+    Convierte valores numéricos a FLOAT de forma segura.
+
+    Si el valor viene como None, string inválido o tipo no convertible,
+    devuelve None para evitar errores durante la carga en BigQuery.
+    """
     if value is None:
         return None
 
@@ -18,6 +24,12 @@ def _safe_float(value: Any):
 
 
 def _safe_int(value: Any):
+    """
+    Convierte valores numéricos a INT de forma segura.
+
+    Si el valor viene como None, string inválido o tipo no convertible,
+    devuelve None para evitar errores durante la carga en BigQuery.
+    """
     if value is None:
         return None
 
@@ -28,29 +40,30 @@ def _safe_int(value: Any):
 
 
 def normalize_market_row(item: Dict[str, Any], ingested_at: datetime) -> Dict[str, Any]:
+    """
+    Normaliza un registro devuelto por CoinGecko.
+
+    Esta función convierte el JSON original de CoinGecko en una estructura
+    plana compatible con la tabla SANDBOX de BigQuery.
+
+    También añade campos técnicos:
+    - source
+    - vs_currency
+    - ingestion_date
+    - ingested_at
+    """
+
     return {
         "coin_id": item.get("id"),
         "symbol": item.get("symbol"),
         "name": item.get("name"),
         "current_price": _safe_float(item.get("current_price")),
-        "market_cap": _safe_float(item.get("market_cap")),
+        "market_cap": _safe_int(item.get("market_cap")),
         "market_cap_rank": _safe_int(item.get("market_cap_rank")),
         "total_volume": _safe_float(item.get("total_volume")),
-        "high_24h": _safe_float(item.get("high_24h")),
-        "low_24h": _safe_float(item.get("low_24h")),
-        "price_change_24h": _safe_float(item.get("price_change_24h")),
         "price_change_percentage_24h": _safe_float(
             item.get("price_change_percentage_24h")
         ),
-        "circulating_supply": _safe_float(item.get("circulating_supply")),
-        "total_supply": _safe_float(item.get("total_supply")),
-        "max_supply": _safe_float(item.get("max_supply")),
-        "ath": _safe_float(item.get("ath")),
-        "ath_change_percentage": _safe_float(item.get("ath_change_percentage")),
-        "ath_date": item.get("ath_date"),
-        "atl": _safe_float(item.get("atl")),
-        "atl_change_percentage": _safe_float(item.get("atl_change_percentage")),
-        "atl_date": item.get("atl_date"),
         "last_updated": item.get("last_updated"),
         "source": settings.SOURCE_NAME,
         "vs_currency": settings.API_VS_CURRENCY,
@@ -60,6 +73,20 @@ def normalize_market_row(item: Dict[str, Any], ingested_at: datetime) -> Dict[st
 
 
 def fetch_coingecko_market_data(**context) -> int:
+    """
+    Task de extracción para Airflow.
+
+    Responsabilidad:
+    - Llamar a la API pública de CoinGecko.
+    - Descargar los datos de mercado.
+    - Normalizar la respuesta.
+    - Validar registros mínimos obligatorios.
+    - Guardar los registros normalizados en XCom.
+
+    Devuelve:
+    - Número de registros válidos descargados.
+    """
+
     params = {
         "vs_currency": settings.API_VS_CURRENCY,
         "order": settings.API_ORDER,
@@ -80,7 +107,11 @@ def fetch_coingecko_market_data(**context) -> int:
         raise ValueError("CoinGecko API returned no rows")
 
     ingested_at = datetime.now(timezone.utc)
-    rows = [normalize_market_row(item, ingested_at) for item in data]
+
+    rows = [
+        normalize_market_row(item, ingested_at)
+        for item in data[: int(settings.API_LIMIT)]
+    ]
 
     valid_rows = [
         row
@@ -93,12 +124,27 @@ def fetch_coingecko_market_data(**context) -> int:
     if not valid_rows:
         raise ValueError("No valid rows after CoinGecko normalization")
 
-    context["ti"].xcom_push(key="coingecko_rows", value=valid_rows)
+    context["ti"].xcom_push(
+        key="coingecko_rows",
+        value=valid_rows,
+    )
 
     return len(valid_rows)
 
 
 def load_rows_to_bigquery(**context) -> int:
+    """
+    Task de carga para Airflow.
+
+    Responsabilidad:
+    - Recuperar los registros normalizados desde XCom.
+    - Cargar los datos en la tabla SANDBOX de BigQuery.
+    - Delegar la escritura a un BigQuery Load Job.
+
+    Devuelve:
+    - Número de registros cargados.
+    """
+
     rows: List[Dict[str, Any]] = context["ti"].xcom_pull(
         task_ids="extract_coingecko_data",
         key="coingecko_rows",
@@ -108,12 +154,12 @@ def load_rows_to_bigquery(**context) -> int:
         raise ValueError("No rows found in XCom from extract_coingecko_data")
 
     client = bigquery.Client(
-        project=settings.PROJECT_ID,
+        project=settings.PROJECT_ID1,
         location=settings.BQ_LOCATION,
     )
 
     table_id = (
-        f"{settings.PROJECT_ID}."
+        f"{settings.PROJECT_ID1}."
         f"{settings.SANDBOX_DATASET}."
         f"{settings.SANDBOX_TABLE}"
     )
