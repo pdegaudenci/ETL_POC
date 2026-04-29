@@ -1,9 +1,10 @@
 import os
 from pathlib import Path
 
-from config import settings
-from etl.api_downloader import ApiDownloader
-from etl.bq_loader import BigQueryLoader
+from etl.config import settings
+from etl.extract import ApiExtractor
+from etl.load import BigQueryLoader
+from etl.transform import BigQueryTransformer
 
 
 def validate_settings():
@@ -18,7 +19,7 @@ def validate_settings():
 
     if not Path(settings.GOOGLE_APPLICATION_CREDENTIALS_FULL_PATH).exists():
         raise FileNotFoundError(
-            f"No existe el archivo de credenciales: "
+            "No existe el archivo de credenciales: "
             f"{settings.GOOGLE_APPLICATION_CREDENTIALS_FULL_PATH}"
         )
 
@@ -30,47 +31,51 @@ def main():
         settings.GOOGLE_APPLICATION_CREDENTIALS_FULL_PATH
     )
 
-    print("Descargando datos desde API...")
-    downloader = ApiDownloader(settings.API_URL)
-    rows = downloader.download(limit=settings.API_LIMIT)
-    print(f"Registros descargados: {len(rows)}")
+    print("EXTRACT - Descargando datos desde API...")
+    extractor = ApiExtractor(
+        api_url=settings.API_URL,
+        source_name=settings.SOURCE_NAME,
+    )
+    rows = extractor.extract(limit=settings.API_LIMIT)
+    print(f"EXTRACT - Registros descargados: {len(rows)}")
 
-    bq = BigQueryLoader(
+    print("LOAD - Preparando BigQuery SANDBOX...")
+    loader = BigQueryLoader(
         project_id=settings.PROJECT_ID,
         location=settings.BQ_LOCATION,
     )
 
-    print("Creando/verificando dataset SANDBOX...")
-    bq.ensure_dataset(settings.SANDBOX_DATASET)
+    loader.ensure_dataset(settings.SANDBOX_DATASET)
 
-    print("Creando/verificando tabla SANDBOX...")
-    bq.ensure_sandbox_table(
+    loader.ensure_sandbox_table(
         dataset_id=settings.SANDBOX_DATASET,
         table_id=settings.SANDBOX_TABLE,
     )
 
-    print("Cargando datos en SANDBOX...")
-    bq.load_json_rows(
+    loader.load_json_rows(
         dataset_id=settings.SANDBOX_DATASET,
         table_id=settings.SANDBOX_TABLE,
         rows=rows,
         write_disposition=settings.WRITE_DISPOSITION,
     )
 
-    print("Creando/verificando dataset INTEGRATION...")
-    bq.ensure_dataset(settings.INTEGRATION_DATASET)
+    print("TRANSFORM - Preparando BigQuery INTEGRATION...")
+    transformer = BigQueryTransformer(
+        project_id=settings.PROJECT_ID,
+        location=settings.BQ_LOCATION,
+    )
 
-    print("Creando/verificando tabla INTEGRATION...")
-    bq.ensure_integration_table(
+    transformer.ensure_dataset(settings.INTEGRATION_DATASET)
+
+    transformer.ensure_integration_table(
         dataset_id=settings.INTEGRATION_DATASET,
         table_id=settings.INTEGRATION_TABLE,
     )
 
-    print("Ejecutando transformación SQL idempotente...")
-    sql_path = Path(__file__).resolve().parents[1] / "sql" / "transform.sql"
-    bq.run_sql_file(str(sql_path))
+    print("TRANSFORM - Ejecutando SQL idempotente...")
+    transformer.run_sql_file(settings.SQL_TRANSFORM_PATH)
 
-    print("Proceso completo finalizado correctamente.")
+    print("Proceso ETL finalizado correctamente.")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-ROOT_DIR = Path(__file__).resolve().parent
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
 
 load_dotenv(ROOT_DIR / ".env")
 
@@ -24,6 +25,7 @@ class Settings:
 
     API_URL = os.getenv("API_URL")
     API_LIMIT = int(os.getenv("API_LIMIT", "100"))
+    SOURCE_NAME = os.getenv("SOURCE_NAME", "open_meteo")
 
     WRITE_DISPOSITION = os.getenv("WRITE_DISPOSITION", "WRITE_TRUNCATE")
 
@@ -35,6 +37,8 @@ class Settings:
     GOOGLE_APPLICATION_CREDENTIALS_FULL_PATH = str(
         ROOT_DIR / GOOGLE_APPLICATION_CREDENTIALS
     )
+
+    SQL_TRANSFORM_PATH = str(ROOT_DIR / "sql" / "transform.sql")
 
 
 settings = Settings()
