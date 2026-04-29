@@ -6,11 +6,12 @@ from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryInsertJobOperator,
     BigQueryCheckOperator,
 )
+from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 
 from utils.config import settings
 from utils.coingecko_api import (
     fetch_coingecko_market_data,
-    load_rows_to_bigquery,
+    write_raw_json_to_gcs,
 )
 
 
@@ -24,23 +25,23 @@ default_args = {
 }
 
 
-def table_ref(dataset: str, table: str) -> str:
-    return f"`{settings.PROJECT_ID}.{dataset}.{table}`"
-
-
 def dataset_ref(dataset: str) -> str:
     return f"`{settings.PROJECT_ID}.{dataset}`"
 
 
+def table_ref(dataset: str, table: str) -> str:
+    return f"`{settings.PROJECT_ID}.{dataset}.{table}`"
+
+
 with DAG(
     dag_id="coingecko_market_pipeline",
-    description="Professional ETL pipeline using CoinGecko API, Cloud Composer and BigQuery",
+    description="CoinGecko ETL pipeline using Cloud Composer, GCS and BigQuery",
     default_args=default_args,
     start_date=datetime(2026, 1, 1),
     schedule="@daily",
     catchup=False,
     max_active_runs=1,
-    tags=["gcp", "bigquery", "composer", "coingecko", "data-engineering"],
+    tags=["gcp", "composer", "bigquery", "gcs", "coingecko"],
 ) as dag:
 
     create_sandbox_dataset = BigQueryInsertJobOperator(
@@ -102,10 +103,7 @@ with DAG(
                 PARTITION BY ingestion_date
                 CLUSTER BY source, symbol;
                 """.format(
-                    table=table_ref(
-                        settings.SANDBOX_DATASET,
-                        settings.SANDBOX_TABLE,
-                    )
+                    table=table_ref(settings.SANDBOX_DATASET, settings.SANDBOX_TABLE)
                 ),
                 "useLegacySql": False,
             }
@@ -153,9 +151,40 @@ with DAG(
         python_callable=fetch_coingecko_market_data,
     )
 
-    load_to_sandbox = PythonOperator(
-        task_id="load_to_sandbox",
-        python_callable=load_rows_to_bigquery,
+    write_raw_file_to_gcs = PythonOperator(
+        task_id="write_raw_file_to_gcs",
+        python_callable=write_raw_json_to_gcs,
+    )
+
+    load_gcs_to_sandbox = GCSToBigQueryOperator(
+        task_id="load_gcs_to_sandbox",
+        bucket=settings.RAW_BUCKET,
+        source_objects=[
+            "{{ ti.xcom_pull(task_ids='write_raw_file_to_gcs', key='gcs_object_name') }}"
+        ],
+        destination_project_dataset_table=(
+            f"{settings.PROJECT_ID}."
+            f"{settings.SANDBOX_DATASET}."
+            f"{settings.SANDBOX_TABLE}"
+        ),
+        source_format="NEWLINE_DELIMITED_JSON",
+        write_disposition=settings.WRITE_DISPOSITION,
+        autodetect=False,
+        schema_fields=[
+            {"name": "coin_id", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "symbol", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "name", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "current_price", "type": "FLOAT64", "mode": "NULLABLE"},
+            {"name": "market_cap", "type": "INT64", "mode": "NULLABLE"},
+            {"name": "market_cap_rank", "type": "INT64", "mode": "NULLABLE"},
+            {"name": "total_volume", "type": "FLOAT64", "mode": "NULLABLE"},
+            {"name": "price_change_percentage_24h", "type": "FLOAT64", "mode": "NULLABLE"},
+            {"name": "last_updated", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "source", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "vs_currency", "type": "STRING", "mode": "NULLABLE"},
+            {"name": "ingestion_date", "type": "DATE", "mode": "REQUIRED"},
+            {"name": "ingested_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
+        ],
     )
 
     check_sandbox_has_rows = BigQueryCheckOperator(
@@ -167,10 +196,7 @@ with DAG(
         FROM {table}
         WHERE ingestion_date = CURRENT_DATE()
         """.format(
-            table=table_ref(
-                settings.SANDBOX_DATASET,
-                settings.SANDBOX_TABLE,
-            )
+            table=table_ref(settings.SANDBOX_DATASET, settings.SANDBOX_TABLE)
         ),
     )
 
@@ -194,10 +220,7 @@ with DAG(
         FROM {table}
         WHERE snapshot_date = CURRENT_DATE()
         """.format(
-            table=table_ref(
-                settings.INTEGRATION_DATASET,
-                settings.INTEGRATION_TABLE,
-            )
+            table=table_ref(settings.INTEGRATION_DATASET, settings.INTEGRATION_TABLE)
         ),
     )
 
@@ -220,10 +243,7 @@ with DAG(
             HAVING COUNT(*) > 1
         )
         """.format(
-            table=table_ref(
-                settings.INTEGRATION_DATASET,
-                settings.INTEGRATION_TABLE,
-            )
+            table=table_ref(settings.INTEGRATION_DATASET, settings.INTEGRATION_TABLE)
         ),
     )
 
@@ -238,16 +258,15 @@ with DAG(
         },
     )
 
-    [create_sandbox_dataset, create_integration_dataset] >> create_sandbox_table
+    create_sandbox_dataset >> create_sandbox_table
     create_integration_dataset >> create_integration_table
 
-    (
-        [create_sandbox_table, create_integration_table]
-        >> extract_coingecko_data
-        >> load_to_sandbox
-        >> check_sandbox_has_rows
-        >> transform_to_integration
-        >> check_integration_has_rows
-        >> check_no_duplicate_business_key
-        >> run_data_quality_summary
-    )
+    [create_sandbox_table, create_integration_table] >> extract_coingecko_data
+
+    extract_coingecko_data >> write_raw_file_to_gcs
+    write_raw_file_to_gcs >> load_gcs_to_sandbox
+    load_gcs_to_sandbox >> check_sandbox_has_rows
+    check_sandbox_has_rows >> transform_to_integration
+    transform_to_integration >> check_integration_has_rows
+    check_integration_has_rows >> check_no_duplicate_business_key
+    check_no_duplicate_business_key >> run_data_quality_summary

@@ -18,7 +18,8 @@ class Settings:
     Environment Variables del entorno o Airflow Variables, según la estrategia
     del proyecto. Esta clase usa variables de entorno mediante os.getenv().
     """
-
+    RAW_BUCKET = os.getenv("RAW_BUCKET")
+    RAW_PREFIX = os.getenv("RAW_PREFIX", "raw/coingecko/markets")
     PROJECT_ID = os.getenv("PROJECT_ID1")
     BQ_LOCATION = os.getenv("BQ_LOCATION", "EU")
 
@@ -83,6 +84,9 @@ class Settings:
 
         if cls.API_LIMIT <= 0:
             raise ValueError("API_LIMIT must be greater than zero")
+        
+        if not cls.RAW_BUCKET:
+            raise ValueError("RAW_BUCKET is required")
 
     @classmethod
     def read_sql(cls, filename: str) -> str:

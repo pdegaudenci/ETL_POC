@@ -1,22 +1,20 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
+import json
 
 import requests
-from google.cloud import bigquery
+from airflow.providers.google.cloud.hooks.gcs import GCSHook
 
 from utils.config import settings
 
 
-def _safe_float(value: Any):
-    """
-    Convierte valores numéricos a FLOAT de forma segura.
+# ==========================================================
+# HELPERS
+# ==========================================================
 
-    Si el valor viene como None, string inválido o tipo no convertible,
-    devuelve None para evitar errores durante la carga en BigQuery.
-    """
+def _safe_float(value: Any):
     if value is None:
         return None
-
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -24,35 +22,22 @@ def _safe_float(value: Any):
 
 
 def _safe_int(value: Any):
-    """
-    Convierte valores numéricos a INT de forma segura.
-
-    Si el valor viene como None, string inválido o tipo no convertible,
-    devuelve None para evitar errores durante la carga en BigQuery.
-    """
     if value is None:
         return None
-
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
 
 
+# ==========================================================
+# NORMALIZATION
+# ==========================================================
+
 def normalize_market_row(item: Dict[str, Any], ingested_at: datetime) -> Dict[str, Any]:
     """
-    Normaliza un registro devuelto por CoinGecko.
-
-    Esta función convierte el JSON original de CoinGecko en una estructura
-    plana compatible con la tabla SANDBOX de BigQuery.
-
-    También añade campos técnicos:
-    - source
-    - vs_currency
-    - ingestion_date
-    - ingested_at
+    Convierte respuesta CoinGecko en fila compatible con BigQuery.
     """
-
     return {
         "coin_id": item.get("id"),
         "symbol": item.get("symbol"),
@@ -72,30 +57,28 @@ def normalize_market_row(item: Dict[str, Any], ingested_at: datetime) -> Dict[st
     }
 
 
+# ==========================================================
+# TASK 1 - EXTRACT
+# ==========================================================
+
 def fetch_coingecko_market_data(**context) -> int:
     """
-    Task de extracción para Airflow.
-
-    Responsabilidad:
-    - Llamar a la API pública de CoinGecko.
-    - Descargar los datos de mercado.
-    - Normalizar la respuesta.
-    - Validar registros mínimos obligatorios.
-    - Guardar los registros normalizados en XCom.
-
-    Devuelve:
-    - Número de registros válidos descargados.
+    Descarga datos desde CoinGecko y los deja en XCom.
     """
 
     params = {
         "vs_currency": settings.API_VS_CURRENCY,
         "order": settings.API_ORDER,
-        "per_page": settings.API_LIMIT,
-        "page": settings.API_PAGE,
+        "per_page": int(settings.API_LIMIT),
+        "page": int(settings.API_PAGE),
         "sparkline": settings.API_SPARKLINE,
     }
 
-    response = requests.get(settings.API_URL, params=params, timeout=30)
+    response = requests.get(
+        settings.API_URL,
+        params=params,
+        timeout=30,
+    )
     response.raise_for_status()
 
     data = response.json()
@@ -122,7 +105,7 @@ def fetch_coingecko_market_data(**context) -> int:
     ]
 
     if not valid_rows:
-        raise ValueError("No valid rows after CoinGecko normalization")
+        raise ValueError("No valid rows after normalization")
 
     context["ti"].xcom_push(
         key="coingecko_rows",
@@ -132,17 +115,16 @@ def fetch_coingecko_market_data(**context) -> int:
     return len(valid_rows)
 
 
-def load_rows_to_bigquery(**context) -> int:
+# ==========================================================
+# TASK 2 - WRITE RAW FILE TO GCS
+# ==========================================================
+
+def write_raw_json_to_gcs(**context) -> str:
     """
-    Task de carga para Airflow.
+    Guarda archivo NDJSON en Cloud Storage.
 
-    Responsabilidad:
-    - Recuperar los registros normalizados desde XCom.
-    - Cargar los datos en la tabla SANDBOX de BigQuery.
-    - Delegar la escritura a un BigQuery Load Job.
-
-    Devuelve:
-    - Número de registros cargados.
+    Ruta:
+    gs://bucket/data/coingecko/markets/YYYY-MM-DD/file.ndjson
     """
 
     rows: List[Dict[str, Any]] = context["ti"].xcom_pull(
@@ -153,29 +135,35 @@ def load_rows_to_bigquery(**context) -> int:
     if not rows:
         raise ValueError("No rows found in XCom from extract_coingecko_data")
 
-    client = bigquery.Client(
-        project=settings.PROJECT_ID1,
-        location=settings.BQ_LOCATION,
+    now = datetime.now(timezone.utc)
+
+    date_folder = now.strftime("%Y-%m-%d")
+    ts = now.strftime("%Y%m%d_%H%M%S")
+
+    object_name = (
+        f"{settings.RAW_PREFIX}/"
+        f"{date_folder}/"
+        f"coingecko_markets_{ts}.ndjson"
     )
 
-    table_id = (
-        f"{settings.PROJECT_ID1}."
-        f"{settings.SANDBOX_DATASET}."
-        f"{settings.SANDBOX_TABLE}"
+    content = "\n".join(
+        json.dumps(row, ensure_ascii=False, default=str)
+        for row in rows
     )
 
-    job_config = bigquery.LoadJobConfig(
-        write_disposition=settings.WRITE_DISPOSITION,
-        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-        ignore_unknown_values=True,
+    hook = GCSHook()
+
+    hook.upload(
+        bucket_name=settings.RAW_BUCKET,
+        object_name=object_name,
+        data=content,
+        mime_type="application/x-ndjson",
     )
 
-    job = client.load_table_from_json(
-        rows,
-        table_id,
-        job_config=job_config,
+    context["ti"].xcom_push(
+        key="gcs_object_name",
+        value=object_name,
     )
 
-    job.result()
+    return object_name
 
-    return len(rows)
