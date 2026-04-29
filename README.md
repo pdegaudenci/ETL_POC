@@ -323,7 +323,7 @@ python -m pytest tests/integration/test_real_api.py -s
 
 ## Evidencia
 
-![Tablas BigQuery]([[https://github.com/pdegaudenci/ETL_POC/blob/master/docs/tablas.png](https://github.com/pdegaudenci/ETL_POC/blob/master/version_base/docs/tablas.png)])
+![Tablas BigQuery](https://github.com/pdegaudenci/ETL_POC/blob/master/version_base/docs/tablas.png)
 
 
 
