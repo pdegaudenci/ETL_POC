@@ -2,460 +2,362 @@
 
 ## Descripción
 
-Proyecto de ingeniería de datos con dos implementaciones:
+Proyecto de ingeniería de datos con dos implementaciones complementarias:
 
 ### 1. Versión Base (Python ETL)
 
-Pipeline de ingesta y transformación con **Python**, **GCP** y **BigQuery**.
+Pipeline ETL local desarrollado en Python con arquitectura modular:
 
-Proceso:
+**Extract → Load → Transform**
 
-1. Descarga 100 registros desde la API pública **Open-Meteo**
-2. Carga datos en tabla SANDBOX
-3. Ejecuta transformación SQL
-4. Inserta resultado en tabla INTEGRATION
-5. Usa `MERGE` para evitar duplicados
+Flujo:
+
+1. Descarga 100 registros desde la API pública **CoinGecko**
+2. Guarda copia local en carpeta `output/`
+3. Crea dataset y tabla SANDBOX automáticamente
+4. Carga datos crudos en BigQuery
+5. Ejecuta transformación SQL idempotente
+6. Publica datos en `INTEGRATION.integration_prueba_tecnica`
 
 ### 2. Versión Profesional (Cloud Composer)
 
-Pipeline orquestado con **Apache Airflow**, **Cloud Composer**, **BigQuery** y **CoinGecko**.
+Versión cloud orquestada con:
 
-Proceso:
+* Apache Airflow
+* Cloud Composer
+* BigQuery
+* CoinGecko API
 
-1. Descarga mercado crypto desde CoinGecko
-2. Crea datasets y tablas automáticamente
-3. Carga datos crudos en SANDBOX
-4. Ejecuta transformación SQL idempotente
-5. Ejecuta validaciones de calidad
-6. Pipeline cloud gestionado y escalable
+Flujo:
 
----
-
-# Arquitectura
-
-## Versión Base
-
-    Open-Meteo API
-    ↓
-    Python ApiDownloader
-    ↓
-    BigQuery SANDBOX
-    ↓
-    transform.sql
-    ↓
-    BigQuery INTEGRATION
-
-## Versión Cloud Composer
-
-    CoinGecko API
-    ↓
-    Cloud Composer (Airflow DAG)
-    ↓
-    BigQuery SANDBOX
-    ↓
-    transform_coingecko.sql
-    ↓
-    BigQuery INTEGRATION
-    ↓
-    Data Quality Checks
+1. Extracción desde CoinGecko
+2. Carga en SANDBOX
+3. Transformación con BigQuery Jobs
+4. Data Quality Checks
+5. Pipeline escalable y gestionado en GCP
 
 ---
 
-# Estructura del proyecto
+## Arquitectura
 
-    EJERCICIO/
-    ├── version_base/
-    │   ├── etl/
-    │   ├── sql/
-    │   ├── tests/
-    │   ├── config.py
-    │   ├── requirements.txt
-    │   ├── setup_base.ps1
-    │   ├── run_base.ps1
-    │   └── .env.example
-    │
-    ├── version_airflow/
-    │   ├── dags/
-    │   │   ├── coingecko_market_pipeline_dag.py
-    │   │   ├── utils/
-    │   │   │   ├── __init__.py
-    │   │   │   ├── config.py
-    │   │   │   ├── coingecko_api.py
-    │   │   │   └── schemas.py
-    │   │   └── sql/
-    │   │       ├── transform_coingecko.sql
-    │   │       └── data_quality_checks_coingecko.sql
-    │   ├── requirements.txt
-    │   └── .env.example
-    │
-    ├── .gitignore
-    └── README.md
+### Versión Base
 
----
+```text
+CoinGecko API
+   ↓
+Python ETL
+   ↓
+output/*.json
+   ↓
+BigQuery SANDBOX_CRYPTO
+   ↓
+sql/transform.sql
+   ↓
+BigQuery INTEGRATION
+```
 
-# Prerrequisitos
+### Versión Cloud Composer
 
-    Python 3.10+
-    Proyecto en Google Cloud
-    BigQuery API habilitada
-    Cloud Composer habilitado
-    Cuenta de servicio IAM
+```text
+CoinGecko API
+   ↓
+Cloud Composer / Airflow
+   ↓
+BigQuery SANDBOX
+   ↓
+BigQuery MERGE
+   ↓
+INTEGRATION
+   ↓
+Quality Checks
+```
 
 ---
 
-# Service Account
+## Estructura del proyecto
+
+```text
+EJERCICIO/
+├── version_base/
+│   ├── etl/
+│   │   ├── __init__.py
+│   │   ├── config.py
+│   │   ├── extract.py
+│   │   ├── load.py
+│   │   ├── transform.py
+│   │   └── main.py
+│   ├── sql/
+│   │   ├── transform.sql
+│   │   └── data_quality_checks.sql
+│   ├── output/
+│   ├── tests/
+│   ├── requirements.txt
+│   └── .env.example
+│
+├── version_airflow/
+│   ├── dags/
+│   ├── requirements.txt
+│   └── .env.example
+│
+├── docs/
+└── README.md
+```
+
+---
+
+## Prerrequisitos
+
+* Python 3.10+
+* Cuenta en Google Cloud Platform
+* BigQuery API habilitada
+* Cloud Composer API habilitada
+* Cuenta de servicio IAM
+* Clave JSON descargada
+
+---
+
+## Configuración GCP
+
+### 1. Crear proyecto
+
+Crear proyecto:
+
+```text
+etl-poc-494716
+```
+
+### 2. Habilitar APIs
+
+Activar:
+
+* BigQuery API
+* Cloud Composer API
+* Cloud Storage API
+* IAM API
+* Kubernetes Engine API
+
+### 3. Crear Service Account
 
 Crear:
 
-    composer-etl-sa@PROJECT_ID.iam.gserviceaccount.com
+```text
+etl-bq-sa
+```
 
-## Roles recomendados
+### 4. Roles recomendados
 
-    Composer Worker
-    BigQuery Data Editor
-    BigQuery Job User
-    Storage Object Viewer
-    Storage Object Creator
+Asignar:
 
-## Qué permite cada rol
+* BigQuery Data Editor
+* BigQuery Job User
+* Storage Object Admin
 
-**Composer Worker**
+Opcional demo rápida:
 
-- Ejecutar scheduler
-- Ejecutar workers
-- Ejecutar DAGs
+* BigQuery Admin
 
-**BigQuery Data Editor**
+### 5. Descargar clave JSON
 
-- Crear tablas
-- Insertar datos
-- Actualizar tablas
-- MERGE / UPDATE / INSERT
+Guardar en:
 
-**BigQuery Job User**
-
-- Ejecutar queries
-- Lanzar jobs SQL
-
-**Storage Object Viewer**
-
-- Leer DAGs
-- Leer SQL
-- Leer objetos bucket
-
-**Storage Object Creator**
-
-- Subir archivos
-- Crear objetos bucket
-
-## Opción rápida demo
-
-    Composer Worker
-    BigQuery Admin
-    Storage Admin
+```text
+credentials/service_account.json
+```
 
 ---
 
-# Variables de entorno (Versión Base)
+## Variables de entorno (.env)
 
-Crear `.env`
+```env
+PROJECT_ID=
+BQ_LOCATION=EU
 
-    PROJECT_ID=tu-project-id
-    BQ_LOCATION=EU
+APP_NAME=CRYPTO
 
-    APP_NAME=PRUEBA_METEO
+SANDBOX_DATASET=SANDBOX_CRYPTO
+SANDBOX_TABLE=coingecko_markets
 
-    SANDBOX_DATASET=SANDBOX_PRUEBA_METEO
-    SANDBOX_TABLE=open_meteo_hourly
+INTEGRATION_DATASET=INTEGRATION
+INTEGRATION_TABLE=integration_prueba_tecnica
 
-    INTEGRATION_DATASET=INTEGRATION
-    INTEGRATION_TABLE=integration_prueba_tecnica
+API_URL=https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1
+API_LIMIT=100
+SOURCE_NAME=coingecko
 
-    API_URL=https://api.open-meteo.com/v1/forecast?latitude=40.4&longitude=-3.7&hourly=temperature_2m&forecast_days=5
-    API_LIMIT=100
+WRITE_DISPOSITION=WRITE_TRUNCATE
 
-    WRITE_DISPOSITION=WRITE_TRUNCATE
-    GOOGLE_APPLICATION_CREDENTIALS=credentials/service_account.json
-
----
-
-# Variables Airflow (Versión Composer)
-
-En Airflow UI → Admin → Variables
-
-    PROJECT_ID = tu-project-id
-    BQ_LOCATION = EU
-
-    SANDBOX_DATASET = SANDBOX_PRUEBA_CRYPTO
-    SANDBOX_TABLE = coingecko_markets_raw
-
-    INTEGRATION_DATASET = INTEGRATION
-    INTEGRATION_TABLE = integration_coingecko_markets
-
-    API_URL = https://api.coingecko.com/api/v3/coins/markets
-    API_VS_CURRENCY = usd
-    API_ORDER = market_cap_desc
-    API_LIMIT = 100
-    API_PAGE = 1
-    API_SPARKLINE = false
-
-    SOURCE_NAME = coingecko
-    WRITE_DISPOSITION = WRITE_TRUNCATE
+GOOGLE_APPLICATION_CREDENTIALS=credentials/service_account.json
+```
 
 ---
 
-# Instalación
+## Instalación
 
-## Versión Base
+Desde `version_base/`
 
-Instalar dependencias:
-
-    pip install -r version_base/requirements.txt
-
-## Versión Composer
-
-En Composer → PyPI packages:
-
-    requests==2.32.3
-    google-cloud-bigquery==3.25.0
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-# Ejecución
+## Ejecución
 
-## Versión Base – Opción 1 (manual)
+Desde carpeta `version_base`
 
-Desde la carpeta `version_base`:
-
-    python -m etl.main
-
-## Versión Base – Opción 2 (PowerShell con scripts)
-
-Entrar en:
-
-    cd version_base
-
-Permitir scripts:
-
-    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-Preparar entorno:
-
-    .\setup_base.ps1
-
-Ejecutar pipeline:
-
-    .\run_base.ps1
-
-## Qué hacen los scripts
-
-### setup_base.ps1
-
-- Crea entorno virtual
-- Activa entorno virtual
-- Instala requirements.txt
-
-### run_base.ps1
-
-- Activa entorno virtual
-- Configura PYTHONPATH
-- Ejecuta:
-
-    python -m etl.main
-
-## Versión Composer
-
-1. Crear entorno Cloud Composer
-2. Subir DAGs
-3. Configurar Variables
-4. Ejecutar DAG desde Airflow UI
-
-Ruta:
-
-    DAGs → coingecko_market_pipeline
-    Unpause
-    Trigger DAG
+```bash
+python -m etl.main
+```
 
 ---
 
-# Despliegue Cloud Composer
+## Resultado esperado
 
-## Crear entorno
+### Carpeta local
 
-Ir a:
+```text
+output/
+└── coingecko_markets_YYYYMMDD_HHMMSS.json
+```
 
-    Cloud Composer → Create Environment
+### BigQuery
 
-Configurar:
-
-    Environment name: composer-coingecko-dev
-    Region: europe-west1
-    Composer version: estable
-    Airflow version: estable
-    Service Account: composer-etl-sa
-    Network: Public IP
-
-## Subir archivos al bucket DAGs
-
-Subir contenido interno de:
-
-    version_airflow/dags/
-
-Estructura final en Composer:
-
-    dags/
-    ├── coingecko_market_pipeline_dag.py
-    ├── utils/
-    └── sql/
+```text
+SANDBOX_CRYPTO.coingecko_markets
+INTEGRATION.integration_prueba_tecnica
+```
 
 ---
 
-# Orden de ejecución DAG
+## Diseño BigQuery
 
-    create_sandbox_dataset
-    create_integration_dataset
-    create_sandbox_table
-    create_integration_table
-    extract_coingecko_data
-    load_to_sandbox
-    check_sandbox_has_rows
-    transform_to_integration
-    check_integration_has_rows
-    check_no_duplicate_business_key
-    run_data_quality_summary
+### SANDBOX
 
----
+Tabla raw con campos técnicos:
 
-# Resultado esperado
+* ingestion_date
+* ingested_at
 
-## Versión Base
+Optimizada con:
 
-    SANDBOX_PRUEBA_METEO.open_meteo_hourly
-    INTEGRATION.integration_prueba_tecnica
+* Particionado por `ingestion_date`
+* Clustering por `symbol`
 
-## Versión Composer
+### INTEGRATION
 
-    SANDBOX_PRUEBA_CRYPTO.coingecko_markets_raw
-    INTEGRATION.integration_coingecko_markets
+Tabla final de negocio optimizada con:
+
+* Particionado por `execution_date`
+* Clustering por `symbol`
 
 ---
 
-# Diseño BigQuery
-
-## SANDBOX
-
-Incluye campos técnicos:
-
-    ingestion_date
-    ingested_at
-
-Optimización:
-
-    particionado por fecha
-    clustering por source
-
-## INTEGRATION
-
-Optimización:
-
-    particionado por snapshot_date / datetime
-    clustering por source
-
----
-
-# Transformación SQL
-
-## Versión Base
+## Transformación SQL
 
 Archivo:
 
-    sql/transform.sql
+```text
+sql/transform.sql
+```
 
-Lógica:
+Características:
 
-- Filtra partición actual
-- Elimina duplicados con ROW_NUMBER()
-- Usa clave datetime + source
-- UPSERT con MERGE
+* Lee datos desde SANDBOX
+* Filtra partición actual
+* Deduplica con `ROW_NUMBER()`
+* Usa `MERGE`
+* Idempotente
+* Crea tabla si no existe desde Python
 
-## Versión Composer
+---
+
+## Data Quality Checks
 
 Archivo:
 
-    dags/sql/transform_coingecko.sql
+```text
+sql/data_quality_checks.sql
+```
 
-Lógica:
+Validaciones incluidas:
 
-- Filtra ejecución actual
-- Deduplicación
-- Clave coin_id + symbol + snapshot_date + source
-- MERGE idempotente
-
----
-
-# Calidad de datos
-
-Archivos:
-
-    sql/data_quality_checks.sql
-    dags/sql/data_quality_checks_coingecko.sql
-
-Incluye:
-
-- Conteo registros
-- Nulos
-- Duplicados
-- Reconciliación
-- Validaciones finales
+* Conteo de registros
+* Nulos
+* Duplicados
+* Rangos inválidos
+* Reconciliación SANDBOX vs INTEGRATION
+* Top market cap
+* Resumen final
 
 ---
 
-# Tests
+## Tests
 
-    python -m pytest
+Ejecutar todos:
 
-Test API real:
+```bash
+python -m pytest
+```
 
-    python -m pytest tests/integration/test_real_api.py -s
+Ejecutar API real:
+
+```bash
+python -m pytest tests/integration/test_real_api.py -s
+```
 
 ---
 
-# Evidencia
+## Cloud Composer (versión avanzada)
+
+### Qué demuestra
+
+* Orquestación profesional
+* DAGs en Airflow
+* Operadores BigQuery
+* Variables Airflow
+* Reintentos
+* Dependencias entre tareas
+* Escalabilidad cloud
+
+---
+
+## Evidencia
 
 ![Tablas BigQuery](https://github.com/pdegaudenci/ETL_POC/blob/master/docs/tablas.png)
 
 ---
 
-# Buenas prácticas aplicadas
+## Buenas prácticas aplicadas
 
-    Separación de responsabilidades
-    Configuración desacoplada
-    Variables de entorno
-    Airflow Variables
-    Service Account dedicada
-    Creación automática de tablas
-    MERGE idempotente
-    Particionado y clustering
-    SQL desacoplado
-    Data Quality Checks
-    Tests
-    Arquitectura modular
-    Orquestación cloud
+* Arquitectura modular
+* Separación de responsabilidades
+* Variables de entorno
+* SQL desacoplado
+* Idempotencia
+* MERGE
+* Particionado
+* Clustering
+* Tests
+* Persistencia local output/
+* Cloud ready
+* Escalable
+
+---
+
+## Tecnologías utilizadas
+
+* Python
+* Requests
+* Google Cloud
+* BigQuery
+* SQL
+* Pytest
+* python-dotenv
+* Apache Airflow
+* Cloud Composer
 
 ---
 
-# Tecnologías
+## Autor
 
-    Python
-    Requests
-    BigQuery
-    SQL
-    Pytest
-    python-dotenv
-    Apache Airflow
-    Cloud Composer
-    Google Cloud IAM
-    Cloud Storage
-
----
- Autor : Sebastian Degaudenci
+**Sebastian Degaudenci**
